@@ -1,0 +1,765 @@
+<html><head><base href="https://retro-space-shooter.game.com/%20use%20these%20sprites%20as%20inspiration">
+<meta charset="UTF-8">
+<title>Retro Space Shooter</title>
+<style>
+  body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background-color: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    font-family: 'Press Start 2P', cursive;
+  }
+  #gameCanvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+</style>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&amp;display=swap" rel="stylesheet">
+</head>
+<body>
+<canvas id="gameCanvas" data-plugin="@c15r/ide" width="980" height="1310" style="cursor: none;"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+// Set canvas size to full screen
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+// Game state
+let score = 0;
+let gameOver = false;
+let gameStarted = true;
+let playerFlickerTime = 0;
+const playerFlickerDuration = 1000; // 1 second of flickering
+let playerHealth = 100; // New: Player health
+let gamePaused = false; // New: Game pause state
+let gameStartTime = Date.now(); // New: Track when the game started
+
+// Screen shake effect
+let screenShake = {
+  intensity: 0,
+  duration: 0,
+  startTime: 0
+};
+
+// Player ship (increased size)
+const player = {
+  x: canvas.width / 2,
+  y: canvas.height - 120,
+  width: 120,
+  height: 120,
+  speed: 5,
+  isFlickering: false,
+  guns: [
+    { offsetX: -30, offsetY: 0 },
+    { offsetX: 0, offsetY: -20 },
+    { offsetX: 30, offsetY: 0 }
+  ]
+};
+
+// Load player ship image
+const playerImage = new Image();
+playerImage.src = 'https://cdn.discordapp.com/attachments/1249904363590254696/1269054707654066288/yct20hubfk061.webp?ex=66aeaacc&is=66ad594c&hm=5f9c18e9281fa165c48113b2be9273403fbb18a015cf728e567e53de2b46c938&';
+
+// Load asteroid image
+const asteroidImage = new Image();
+asteroidImage.src = 'https://cdn.discordapp.com/attachments/1249904363590254696/1269134811130232863/Asteroid_Brown.png?ex=66aef566&is=66ada3e6&hm=35da2e3d8c5d49101be24abdc2993cb3012c220988ae8b51399981f642d9bdc1&';
+
+// Load bullet image
+const bulletImage = new Image();
+bulletImage.src = 'https://cdn.discordapp.com/attachments/1249904363590254696/1269174008704663642/sr2f15ef39eb2aws3.webp?ex=66af19e7&is=66adc867&hm=9e10ae1a5a07d1e346684ee20b11387fb390119cc1b1e9ef135d52098cd7c2b3&';
+
+// Load explosion spritesheet
+const explosionImage = new Image();
+explosionImage.src = 'https://cdn.discordapp.com/attachments/1249904363590254696/1269192447842451506/Explosion-duplicate_frames.png?ex=66af2b14&is=66add994&hm=de6530340686eb38783cb3c1d95e058247c036ce90adf54b8d0c2d93101c61ea&';
+
+// Load enemy ship sprite
+const enemyImage = new Image();
+enemyImage.src = 'https://media.discordapp.net/attachments/1249904363590254696/1269446197400043530/8fabf2eb407b715315a49f4c67ac4908.png?ex=66b01766&is=66aec5e6&hm=131761cf186c6f5f85cf18aa370da6fa506eacb841fd6d010b1e1a7fea93730a&=&format=webp&quality=lossless&width=571&height=571';
+
+// Load enemy bullet sprite
+const enemyBulletImage = new Image();
+enemyBulletImage.src = 'https://media.discordapp.net/attachments/1249904363590254696/1269479781498486794/Untitled-4.png?ex=66b036ad&is=66aee52d&hm=ac7de92dd5cd28bd083446d857dea56750e85116892e1ff26acf1ce6f5779a50&=&format=webp&quality=lossless&width=972&height=972';
+
+// Enemy ships
+let enemies = [];
+const enemySpawnRate = 0.01;
+const enemyShootRate = 0.005; // New: Enemy shoot rate
+
+// Explosions
+let explosions = [];
+const explosionFrameWidth = 64;
+const explosionFrameHeight = 64;
+const explosionFrames = 16;
+const explosionDuration = 1000; // 1 second for the full animation
+
+// Bullets
+let bullets = [];
+const bulletSpeed = 7;
+let lastBulletTime = 0;
+const bulletCooldown = 100; // 100ms between bullets for rapid fire
+
+// Enemy bullets
+let enemyBullets = []; // New: Array to store enemy bullets
+const enemyBulletSpeed = 5; // New: Speed of enemy bullets
+
+// Asteroids
+let asteroids = [];
+let baseAsteroidSpeed = 1;
+const asteroidSpeedIncrease = 0.0001; // Speed increase per frame
+const asteroidSpawnRate = 0.06; // Decreased spawn rate (was 0.08)
+
+// Stars
+const stars = [];
+const numStars = 100;
+const starSpeed = 2;
+
+// Key states
+const keys = {};
+
+// Mouse position and state
+let mouseX = canvas.width / 2;
+let mouseY = canvas.height / 2;
+let mouseDown = false;
+
+// Sound effects
+const shootSound = new Audio('https://opengameart.org/sites/default/files/laser5.mp3');
+const gameOverSound = new Audio('https://cdn.discordapp.com/attachments/1249904363590254696/1269108038028103720/videogame-death-sound-43894_1.mp3?ex=66aedc77&is=66ad8af7&hm=f2f51d7fc93b99ae47ed7e2f55584ee8a8829eea8dbd3c403f68f3fe0239a56e&');
+const backgroundMusic = new Audio('https://cdn.discordapp.com/attachments/1249904363590254696/1269173309325709312/Space-Oddity-8-Bits_SM6NEoex4ws_00_01_19_00_05_12_part.mp3?ex=66af1941&is=66adc7c1&hm=259640f4d67c7d82953d1bf12d4f49f283040d7933284085e527a194e0112add&');
+const gameOverMusic = new Audio('https://opengameart.org/sites/default/files/Juhani%20Junkala%20-%20Epic%20Boss%20Battle%20%5BLoop%5D.wav');
+const shipHitSound = new Audio('https://cdn.discordapp.com/attachments/1249904363590254696/1269156181914419303/classic-game-action-negative-20-224577.mp3?ex=66af094d&is=66adb7cd&hm=dadede59758e3fa46ace27dbc18bd28f398e059e8305dd3226f72ab17eb1a1b9&');
+const explosionSound = new Audio('https://cdn.discordapp.com/attachments/1249904363590254696/1269197527072063580/mixkit-short-explosion-1694.wav?ex=66af2fe1&is=66adde61&hm=d9e84da5dde6869c4cf80c03294395c345a4f78605d4ee21cdf6b8d9d94d9e6a&');
+
+// Adjust volume
+shootSound.volume = 0.2;
+gameOverSound.volume = 0.5;
+backgroundMusic.volume = 0.2;
+gameOverMusic.volume = 0.3;
+shipHitSound.volume = 0.4;
+explosionSound.volume = 0.3;
+backgroundMusic.loop = true;
+gameOverMusic.loop = true;
+
+// Initialize stars
+for (let i = 0; i < numStars; i++) {
+  stars.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    size: Math.random() * 2 + 1,
+    speed: Math.random() * 2 + 1
+  });
+}
+
+// Event listeners
+document.addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'Enter' && gameOver) {
+    resetGame();
+  }
+  if (e.code === 'Space') {
+    e.preventDefault(); // Prevent default space bar behavior
+    togglePause();
+  }
+});
+document.addEventListener('keyup', (e) => keys[e.code] = false);
+
+// Mouse move event listener
+canvas.addEventListener('mousemove', (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+});
+
+// Mouse down event listener for shooting
+canvas.addEventListener('mousedown', (e) => {
+  mouseDown = true;
+});
+
+// Mouse up event listener to stop shooting
+canvas.addEventListener('mouseup', (e) => {
+  mouseDown = false;
+});
+
+// Hide cursor when over the canvas
+canvas.style.cursor = 'none';
+
+function drawPlayer() {
+  if (player.isFlickering) {
+    const currentTime = Date.now();
+    if ((currentTime - playerFlickerTime) % 200 < 100) {
+      ctx.globalAlpha = 0.5;
+    }
+  }
+  ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
+  ctx.globalAlpha = 1.0;
+}
+
+function drawBullets() {
+  bullets.forEach(bullet => {
+    ctx.drawImage(bulletImage, bullet.x - 16, bullet.y - 32, 32, 64);
+  });
+  // Draw enemy bullets
+  enemyBullets.forEach(bullet => {
+    ctx.drawImage(enemyBulletImage, bullet.x - 8, bullet.y - 16, 16, 32);
+  });
+}
+
+function drawAsteroids() {
+  asteroids.forEach(asteroid => {
+    ctx.drawImage(asteroidImage, asteroid.x, asteroid.y, asteroid.width, asteroid.height);
+  });
+}
+
+function drawEnemies() {
+  enemies.forEach(enemy => {
+    ctx.save();
+    if (enemy.isShaking) {
+      const shakeIntensity = 3;
+      ctx.translate(
+        enemy.x + enemy.width / 2 + (Math.random() - 0.5) * shakeIntensity,
+        enemy.y + enemy.height / 2 + (Math.random() - 0.5) * shakeIntensity
+      );
+      ctx.rotate((Math.random() - 0.5) * 0.05);
+      ctx.translate(-enemy.width / 2, -enemy.height / 2);
+    } else {
+      ctx.translate(enemy.x, enemy.y);
+    }
+    
+    if (enemy.isFlickering) {
+      const currentTime = Date.now();
+      if ((currentTime - enemy.flickerStartTime) % 200 < 100) {
+        ctx.globalAlpha = 0.5;
+      }
+    }
+    
+    ctx.drawImage(enemyImage, 0, 0, enemy.width, enemy.height);
+    ctx.globalAlpha = 1.0;
+    
+    // Draw enemy health bar
+    const healthBarWidth = enemy.width;
+    const healthBarHeight = 5;
+    const healthPercentage = enemy.health / enemy.maxHealth;
+    ctx.fillStyle = 'red';
+    ctx.fillRect(0, -10, healthBarWidth, healthBarHeight);
+    ctx.fillStyle = 'green';
+    ctx.fillRect(0, -10, healthBarWidth * healthPercentage, healthBarHeight);
+    
+    ctx.restore();
+  });
+}
+
+function drawExplosions() {
+  explosions.forEach(explosion => {
+    const frameIndex = Math.floor((Date.now() - explosion.startTime) / (explosionDuration / explosionFrames)) % explosionFrames;
+    ctx.drawImage(
+      explosionImage,
+      frameIndex * explosionFrameWidth, 0, explosionFrameWidth, explosionFrameHeight,
+      explosion.x - explosionFrameWidth / 2, explosion.y - explosionFrameHeight / 2, explosionFrameWidth, explosionFrameHeight
+    );
+    
+    // Draw additional explosions for cluster effect
+    for (let i = 0; i < 3; i++) {
+      const offsetX = (Math.random() - 0.5) * 40;
+      const offsetY = (Math.random() - 0.5) * 40;
+      const scale = Math.random() * 0.5 + 0.5;
+      ctx.drawImage(
+        explosionImage,
+        frameIndex * explosionFrameWidth, 0, explosionFrameWidth, explosionFrameHeight,
+        explosion.x - explosionFrameWidth / 2 * scale + offsetX,
+        explosion.y - explosionFrameHeight / 2 * scale + offsetY,
+        explosionFrameWidth * scale,
+        explosionFrameHeight * scale
+      );
+    }
+  });
+}
+
+function drawStars() {
+  ctx.fillStyle = '#fff';
+  stars.forEach(star => {
+    ctx.beginPath();
+    ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+    ctx.fill();
+  });
+}
+
+function drawScore() {
+  ctx.fillStyle = '#fff';
+  ctx.font = '20px "Press Start 2P"';
+  ctx.fillText(Score: ${score}, 10, 30);
+}
+
+function drawHealthBar() {
+  const barWidth = 200;
+  const barHeight = 20;
+  const padding = 10;
+  
+  // Draw background
+  ctx.fillStyle = '#333';
+  ctx.fillRect(canvas.width - barWidth - padding, padding, barWidth, barHeight);
+  
+  // Draw health
+  ctx.fillStyle = playerHealth > 30 ? '#0f0' : '#f00';
+  const currentHealthWidth = (playerHealth / 100) * barWidth;
+  ctx.fillRect(canvas.width - barWidth - padding, padding, currentHealthWidth, barHeight);
+  
+  // Draw border
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(canvas.width - barWidth - padding, padding, barWidth, barHeight);
+  
+  // Draw text
+  ctx.fillStyle = '#fff';
+  ctx.font = '16px "Press Start 2P"';
+  ctx.textAlign = 'right';
+  ctx.fillText(Health: ${playerHealth}, canvas.width - padding, padding + barHeight + 20);
+  ctx.textAlign = 'left';
+}
+
+function applyScreenShake() {
+  if (screenShake.duration > 0) {
+    const elapsedTime = Date.now() - screenShake.startTime;
+    const progress = elapsedTime / screenShake.duration;
+    
+    if (progress < 1) {
+      const shakeX = (Math.random() - 0.5) * 2 * screenShake.intensity * (1 - progress);
+      const shakeY = (Math.random() - 0.5) * 2 * screenShake.intensity * (1 - progress);
+      ctx.save();
+      ctx.translate(shakeX, shakeY);
+    } else {
+      screenShake.duration = 0;
+    }
+  }
+}
+
+function update() {
+  if (gameOver || gamePaused) return;
+
+  // Increase asteroid speed over time
+  baseAsteroidSpeed += asteroidSpeedIncrease;
+
+  // Move player with arrow keys or WASD
+  if (keys['ArrowLeft'] || keys['KeyA']) player.x -= player.speed;
+  if (keys['ArrowRight'] || keys['KeyD']) player.x += player.speed;
+  if (keys['ArrowUp'] || keys['KeyW']) player.y -= player.speed;
+  if (keys['ArrowDown'] || keys['KeyS']) player.y += player.speed;
+  
+  // Also allow mouse movement
+  if (mouseX !== undefined && mouseY !== undefined) {
+    player.x = mouseX - player.width / 2;
+    player.y = mouseY - player.height / 2;
+  }
+  
+  // Clamp player position to canvas boundaries
+  player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+  player.y = Math.max(0, Math.min(canvas.height - player.height, player.y));
+
+  // Rapid fire from multiple guns
+  if ((mouseDown || keys['Space']) && Date.now() - lastBulletTime > bulletCooldown) {
+    player.guns.forEach(gun => {
+      bullets.push({
+        x: player.x + player.width / 2 + gun.offsetX,
+        y: player.y + gun.offsetY
+      });
+    });
+    lastBulletTime = Date.now();
+    shootSound.currentTime = 0;
+    shootSound.play();
+  }
+
+  // Move bullets
+  bullets = bullets.filter(bullet => {
+    bullet.y -= bulletSpeed;
+    return bullet.y > -64; // Adjust for new bullet size
+  });
+
+  // Move enemy bullets
+  enemyBullets = enemyBullets.filter(bullet => {
+    bullet.y += enemyBulletSpeed;
+    return bullet.y < canvas.height + 5; // Remove bullets that are out of view
+  });
+
+  // Move asteroids
+  asteroids = asteroids.filter(asteroid => {
+    asteroid.y += asteroid.speed;
+    // Remove asteroids that are out of view
+    return asteroid.y < canvas.height + asteroid.height;
+  });
+
+  // Move enemies and make them shoot (without following the player)
+  enemies = enemies.filter(enemy => {
+    // Move enemy downward
+    enemy.y += enemy.speed;
+    
+    // Enemy shooting
+    if (Math.random() < enemyShootRate) {
+      // Shoot from two guns
+      enemyBullets.push({
+        x: enemy.x + enemy.width / 4,
+        y: enemy.y + enemy.height,
+        dirX: 0,
+        dirY: 1 // Shoot straight down
+      });
+      enemyBullets.push({
+        x: enemy.x + enemy.width * 3/4,
+        y: enemy.y + enemy.height,
+        dirX: 0,
+        dirY: 1 // Shoot straight down
+      });
+    }
+    
+    // Remove enemies that are out of view
+    return enemy.y < canvas.height + enemy.height;
+  });
+
+  // Move stars
+  stars.forEach(star => {
+    star.y += star.speed;
+    if (star.y > canvas.height) {
+      star.y = 0;
+      star.x = Math.random() * canvas.width;
+    }
+  });
+
+  // Update explosions
+  explosions = explosions.filter(explosion => {
+    return Date.now() - explosion.startTime < explosionDuration;
+  });
+
+  // Collision detection
+  asteroids = asteroids.filter(asteroid => {
+    let asteroidHit = false;
+    bullets = bullets.filter(bullet => {
+      if (bullet.x - 16 < asteroid.x + asteroid.width &&
+          bullet.x + 16 > asteroid.x &&
+          bullet.y - 32 < asteroid.y + asteroid.height &&
+          bullet.y + 32 > asteroid.y) {
+        asteroidHit = true;
+        score += 10;
+        // Create explosion cluster
+        for (let i = 0; i < 3; i++) {
+          const offsetX = (Math.random() - 0.5) * asteroid.width;
+          const offsetY = (Math.random() - 0.5) * asteroid.height;
+          explosions.push({
+            x: asteroid.x + asteroid.width / 2 + offsetX,
+            y: asteroid.y + asteroid.height / 2 + offsetY,
+            startTime: Date.now() + i * 100 // Stagger explosion start times
+          });
+        }
+        explosionSound.currentTime = 0;
+        explosionSound.play();
+        return false;
+      }
+      return true;
+    });
+
+    // Check for collision with player
+    if (!asteroidHit &&
+        player.x < asteroid.x + asteroid.width &&
+        player.x + player.width > asteroid.x &&
+        player.y < asteroid.y + asteroid.height &&
+        player.y + player.height > asteroid.y) {
+      asteroidHit = true;
+      shipHitSound.currentTime = 0;
+      shipHitSound.play();
+      player.isFlickering = true;
+      playerFlickerTime = Date.now();
+      setTimeout(() => {
+        player.isFlickering = false;
+      }, playerFlickerDuration);
+      
+      // Reduce player health
+      playerHealth -= 10;
+      if (playerHealth <= 0) {
+        gameOver = true;
+        gameOverSound.play();
+        backgroundMusic.pause();
+        backgroundMusic.currentTime = 0;
+        gameOverMusic.play();
+      }
+
+      // Add screen shake effect
+      screenShake.intensity = 10;
+      screenShake.duration = 500;
+      screenShake.startTime = Date.now();
+
+      // Create explosion cluster at player position
+      for (let i = 0; i < 5; i++) {
+        const offsetX = (Math.random() - 0.5) * player.width;
+        const offsetY = (Math.random() - 0.5) * player.height;
+        explosions.push({
+          x: player.x + player.width / 2 + offsetX,
+          y: player.y + player.height / 2 + offsetY,
+          startTime: Date.now() + i * 50 // Stagger explosion start times
+        });
+      }
+      explosionSound.currentTime = 0;
+      explosionSound.play();
+    }
+
+    return !asteroidHit;
+  });
+
+  // Collision detection for enemies
+  enemies = enemies.filter(enemy => {
+    let enemyHit = false;
+    bullets = bullets.filter(bullet => {
+      if (bullet.x - 16 < enemy.x + enemy.width &&
+          bullet.x + 16 > enemy.x &&
+          bullet.y - 32 < enemy.y + enemy.height &&
+          bullet.y + 32 > enemy.y) {
+        enemyHit = true;
+        enemy.health -= 12; // Reduce enemy health by 12 (9 hits to destroy)
+        score += 5; // Add 5 points for each hit
+        
+        // Make enemy flicker and shake
+        enemy.isFlickering = true;
+        enemy.isShaking = true;
+        enemy.flickerStartTime = Date.now();
+        setTimeout(() => {
+          enemy.isFlickering = false;
+          enemy.isShaking = false;
+        }, 200); // Flicker and shake for 200ms
+        
+        if (enemy.health <= 0) {
+          score += 50; // Additional 50 points for destroying the enemy
+          // Create explosion
+          explosions.push({
+            x: enemy.x + enemy.width / 2,
+            y: enemy.y + enemy.height / 2,
+            startTime: Date.now()
+          });
+          explosionSound.currentTime = 0;
+          explosionSound.play();
+          return false; // Remove the enemy
+        }
+        return false; // Remove the bullet
+      }
+      return true;
+    });
+
+    // Check for collision with player
+    if (!enemyHit &&
+        player.x < enemy.x + enemy.width &&
+        player.x + player.width > enemy.x &&
+        player.y < enemy.y + enemy.height &&
+        player.y + player.height > enemy.y) {
+      enemyHit = true;
+      shipHitSound.currentTime = 0;
+      shipHitSound.play();
+      player.isFlickering = true;
+      playerFlickerTime = Date.now();
+      setTimeout(() => {
+        player.isFlickering = false;
+      }, playerFlickerDuration);
+      
+      // Reduce player health
+      playerHealth -= 20;
+      if (playerHealth <= 0) {
+        gameOver = true;
+        gameOverSound.play();
+        backgroundMusic.pause();
+        backgroundMusic.currentTime = 0;
+        gameOverMusic.play();
+      }
+
+      // Add screen shake effect
+      screenShake.intensity = 15;
+      screenShake.duration = 500;
+      screenShake.startTime = Date.now();
+
+      // Create explosion at player position
+      explosions.push({
+        x: player.x + player.width / 2,
+        y: player.y + player.height / 2,
+        startTime: Date.now()
+      });
+      explosionSound.currentTime = 0;
+      explosionSound.play();
+    }
+
+    return enemy.health > 0; // Keep the enemy if it's still alive
+  });
+
+  // Collision detection for enemy bullets
+  enemyBullets = enemyBullets.filter(bullet => {
+    if (bullet.x > player.x &&
+        bullet.x < player.x + player.width &&
+        bullet.y > player.y &&
+        bullet.y < player.y + player.height) {
+      // Player hit by enemy bullet
+      shipHitSound.currentTime = 0;
+      shipHitSound.play();
+      player.isFlickering = true;
+      playerFlickerTime = Date.now();
+      setTimeout(() => {
+        player.isFlickering = false;
+      }, playerFlickerDuration);
+      
+      // Reduce player health
+      playerHealth -= 10;
+      if (playerHealth <= 0) {
+        gameOver = true;
+        gameOverSound.play();
+        backgroundMusic.pause();
+        backgroundMusic.currentTime = 0;
+        gameOverMusic.play();
+      }
+
+      // Add screen shake effect
+      screenShake.intensity = 10;
+      screenShake.duration = 300;
+      screenShake.startTime = Date.now();
+
+      return false; // Remove the bullet
+    }
+    return true;
+  });
+
+  // Spawn new asteroids
+  if (Math.random() < asteroidSpawnRate) {
+    const asteroidSize = Math.random() * 25 + 50; // Random size between 50 and 75
+    asteroids.push({
+      x: Math.random() * (canvas.width - asteroidSize),
+      y: -asteroidSize,
+      width: asteroidSize,
+      height: asteroidSize,
+      speed: Math.random() * 2 + baseAsteroidSpeed // Random speed for each asteroid
+    });
+  }
+
+  // Spawn new enemies only after 5 seconds into the game
+  const currentTime = Date.now();
+  if (currentTime - gameStartTime >= 5000) { // 5000 milliseconds = 5 seconds
+    if (Math.random() < enemySpawnRate) {
+      const enemySize = 80; // Fixed size for enemy ships
+      enemies.push({
+        x: Math.random() * (canvas.width - enemySize),
+        y: -enemySize,
+        width: enemySize,
+        height: enemySize,
+        health: 108, // Full health (9 shots to kill)
+        maxHealth: 108, // Maximum health
+        isFlickering: false,
+        isShaking: false,
+        flickerStartTime: 0,
+        speed: Math.random() * 2 + 1 // Random speed between 1 and 3
+      });
+    }
+  }
+}
+
+function draw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+  applyScreenShake();
+  
+  // Always draw stars to create a space effect
+  drawStars();
+  
+  if (gameOver) {
+    ctx.fillStyle = '#fff';
+    ctx.font = '40px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 20);
+    ctx.font = '20px "Press Start 2P"';
+    ctx.fillText(Final Score: ${score}, canvas.width / 2, canvas.height / 2 + 20);
+    ctx.fillText('Press ENTER to Restart', canvas.width / 2, canvas.height / 2 + 60);
+  } else if (gamePaused) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#fff';
+    ctx.font = '40px "Press Start 2P"';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', canvas.width / 2, canvas.height / 2);
+    ctx.font = '20px "Press Start 2P"';
+    ctx.fillText('Press SPACE to Resume', canvas.width / 2, canvas.height / 2 + 40);
+  } else {
+    ctx.textAlign = 'left';
+    drawPlayer();
+    drawBullets();
+    drawAsteroids();
+    drawEnemies();
+    drawExplosions();
+    drawScore();
+    drawHealthBar();
+  }
+  
+  if (screenShake.duration > 0) {
+    ctx.restore();
+  }
+}
+
+function gameLoop() {
+  update();
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+function resetGame() {
+  score = 0;
+  playerHealth = 100;
+  gameOver = false;
+  gamePaused = false;
+  player.x = canvas.width / 2 - player.width / 2;
+  player.y = canvas.height - 120;
+  player.isFlickering = false;
+  bullets = [];
+  enemyBullets = [];
+  asteroids = [];
+  enemies = [];
+  explosions = [];
+  baseAsteroidSpeed = 1; // Reset asteroid speed
+  backgroundMusic.currentTime = 0;
+  backgroundMusic.play();
+  gameOverMusic.pause();
+  gameOverMusic.currentTime = 0;
+  screenShake = { intensity: 0, duration: 0, startTime: 0 };
+  gameStartTime = Date.now(); // Reset the game start time
+}
+
+function togglePause() {
+  gamePaused = !gamePaused;
+  if (gamePaused) {
+    backgroundMusic.pause();
+  } else {
+    backgroundMusic.play();
+  }
+}
+
+// Resize canvas when window is resized
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  player.y = canvas.height - 120;
+});
+
+// Start the game loop when all images are loaded
+let imagesLoaded = 0;
+const totalImages = 6; // playerImage, asteroidImage, bulletImage, explosionImage, enemyImage, and enemyBulletImage
+
+function onImageLoad() {
+  imagesLoaded++;
+  if (imagesLoaded === totalImages) {
+    gameLoop();
+    backgroundMusic.play(); // Start playing background music immediately
+  }
+}
+
+playerImage.onload = onImageLoad;
+asteroidImage.onload = onImageLoad;
+bulletImage.onload = onImageLoad;
+explosionImage.onload = onImageLoad;
+enemyImage.onload = onImageLoad;
+enemyBulletImage.onload = onImageLoad;
+
+</script>
+
+</body></html>
